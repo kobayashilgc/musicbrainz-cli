@@ -2,6 +2,7 @@ package output
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"go.uploadedlobster.com/mbtypes"
@@ -113,5 +114,49 @@ func TestSimplifyReleaseFields(t *testing.T) {
 	}
 	if len(item.Tag) != 1 || item.Tag[0] != "rock" {
 		t.Fatalf("tag = %#v", item.Tag)
+	}
+}
+
+func TestSimplifyReleaseGroupFields(t *testing.T) {
+	t.Parallel()
+
+	releaseGroup := musicbrainzws2.ReleaseGroup{
+		ID:          mbtypes.MBID("abbc4905-c25f-4c67-8e2d-19329ec48b1f"),
+		Title:       "Abbey Road",
+		Score:       95,
+		PrimaryType: "Album",
+		ArtistCredit: musicbrainzws2.ArtistCredit{
+			{Name: "The Beatles", Artist: musicbrainzws2.Artist{Name: "The Beatles"}},
+		},
+		Aliases: []musicbrainzws2.Alias{
+			{Name: "别名", IsPrimary: true},
+		},
+		Tags: []musicbrainzws2.Tag{{Name: "rock"}},
+	}
+	releaseGroup.FirstReleaseDate.Parse("1969-09-26")
+
+	item := SimplifyReleaseGroup(releaseGroup)
+	if item.ReleaseGroup != "Abbey Road" {
+		t.Fatalf("releasegroup = %q", item.ReleaseGroup)
+	}
+	if item.Release != "" {
+		t.Fatalf("release should be omitted, got %q", item.Release)
+	}
+	if item.Artist != "The Beatles" {
+		t.Fatalf("artist = %q", item.Artist)
+	}
+	if item.Type != "Album" {
+		t.Fatalf("type = %q", item.Type)
+	}
+	if item.Date != "1969-09-26" {
+		t.Fatalf("date = %q", item.Date)
+	}
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal error = %v", err)
+	}
+	if !strings.Contains(string(data), `"releasegroup":"Abbey Road"`) {
+		t.Fatalf("unexpected json: %s", string(data))
 	}
 }

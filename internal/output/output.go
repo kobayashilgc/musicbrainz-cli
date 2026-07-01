@@ -9,10 +9,12 @@ import (
 )
 
 const (
-	TypeArtistSearch  = "artist_search"
-	TypeReleaseSearch = "release_search"
-	TypeArtistLookup  = "artist_lookup"
-	TypeReleaseLookup = "release_lookup"
+	TypeArtistSearch        = "artist_search"
+	TypeReleaseSearch       = "release_search"
+	TypeReleaseGroupSearch  = "releasegroup_search"
+	TypeArtistLookup        = "artist_lookup"
+	TypeReleaseLookup       = "release_lookup"
+	TypeReleaseGroupLookup  = "releasegroup_lookup"
 )
 
 // MinSearchScore is the minimum MusicBrainz search score included in results.
@@ -170,6 +172,52 @@ func ReleaseSearch(mode Mode, query string, limit, pageNo int, result musicbrain
 	return resp, nil
 }
 
+// ReleaseGroupSearch builds a search response after score filtering and mode-specific serialization.
+func ReleaseGroupSearch(mode Mode, query string, limit, pageNo int, result musicbrainzws2.SearchReleaseGroupsResult) (SearchResponse, error) {
+	releaseGroups := filterReleaseGroups(result.ReleaseGroups)
+	currentCount, hasData := searchPageMeta(result.Count, limit, pageNo, len(releaseGroups))
+	created := result.Created
+	if created.IsZero() {
+		created = time.Now().UTC()
+	}
+
+	resp := SearchResponse{
+		Type:         TypeReleaseGroupSearch,
+		Output:       mode.String(),
+		Query:        query,
+		PageNo:       pageNo,
+		Limit:        limit,
+		MinScore:     MinSearchScore,
+		PrimaryType:  RequiredReleasePrimaryType,
+		Count:        result.Count,
+		CurrentCount: currentCount,
+		HasData:      hasData,
+		Created:      created,
+	}
+
+	if mode == ModeFull {
+		results, err := json.Marshal(releaseGroups)
+		if err != nil {
+			return SearchResponse{}, err
+		}
+		scores := make(map[string]int, len(releaseGroups))
+		for _, releaseGroup := range releaseGroups {
+			scores[string(releaseGroup.ID)] = releaseGroup.Score
+		}
+		resp.Results = results
+		resp.Scores = scores
+		return resp, nil
+	}
+
+	simplified := SimplifyReleaseGroups(releaseGroups)
+	results, err := json.Marshal(simplified)
+	if err != nil {
+		return SearchResponse{}, err
+	}
+	resp.Results = results
+	return resp, nil
+}
+
 // searchPageMeta derives current_count and has_data from API totals and filtered page size.
 func searchPageMeta(apiCount, limit, pageNo, filteredLen int) (currentCount int, hasData bool) {
 	offset := (pageNo - 1) * limit
@@ -193,6 +241,17 @@ func filterReleases(releases []musicbrainzws2.Release) []musicbrainzws2.Release 
 	for _, release := range releases {
 		if release.Score >= MinSearchScore {
 			filtered = append(filtered, release)
+		}
+	}
+	return filtered
+}
+
+// filterReleaseGroups drops search hits below MinSearchScore before serialization.
+func filterReleaseGroups(releaseGroups []musicbrainzws2.ReleaseGroup) []musicbrainzws2.ReleaseGroup {
+	filtered := make([]musicbrainzws2.ReleaseGroup, 0, len(releaseGroups))
+	for _, releaseGroup := range releaseGroups {
+		if releaseGroup.Score >= MinSearchScore {
+			filtered = append(filtered, releaseGroup)
 		}
 	}
 	return filtered
@@ -242,6 +301,32 @@ func ReleaseLookup(mode Mode, id string, release musicbrainzws2.Release) (Lookup
 	}
 
 	simplified := SimplifyRelease(release)
+	result, err := json.Marshal(simplified)
+	if err != nil {
+		return LookupResponse{}, err
+	}
+	resp.Result = result
+	return resp, nil
+}
+
+// ReleaseGroupLookup builds a lookup response in the selected output mode.
+func ReleaseGroupLookup(mode Mode, id string, releaseGroup musicbrainzws2.ReleaseGroup) (LookupResponse, error) {
+	resp := LookupResponse{
+		Type:   TypeReleaseGroupLookup,
+		Output: mode.String(),
+		ID:     id,
+	}
+
+	if mode == ModeFull {
+		result, err := json.Marshal(releaseGroup)
+		if err != nil {
+			return LookupResponse{}, err
+		}
+		resp.Result = result
+		return resp, nil
+	}
+
+	simplified := SimplifyReleaseGroup(releaseGroup)
 	result, err := json.Marshal(simplified)
 	if err != nil {
 		return LookupResponse{}, err

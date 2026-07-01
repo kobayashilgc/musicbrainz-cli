@@ -13,6 +13,17 @@ const releasePrimaryTypeAlbum = "primarytype:album"
 // The query always includes primarytype:album so the API filters to album releases.
 // At least one of textQuery or artistMBID must be non-empty.
 func BuildReleaseQuery(textQuery, artistMBID string) (string, error) {
+	return buildAlbumScopedQuery(textQuery, artistMBID)
+}
+
+// BuildReleaseGroupQuery composes a release-group search Lucene query from optional text and artist MBID.
+// The query always includes primarytype:album so the API filters to album release groups.
+// At least one of textQuery or artistMBID must be non-empty.
+func BuildReleaseGroupQuery(textQuery, artistMBID string) (string, error) {
+	return buildAlbumScopedQuery(textQuery, artistMBID)
+}
+
+func buildAlbumScopedQuery(textQuery, artistMBID string) (string, error) {
 	textQuery = strings.TrimSpace(textQuery)
 	artistMBID = strings.TrimSpace(artistMBID)
 

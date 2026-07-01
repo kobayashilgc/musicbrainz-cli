@@ -21,6 +21,7 @@ func NewCommand() *cobra.Command {
 	}
 	cmd.AddCommand(newArtistCommand())
 	cmd.AddCommand(newReleaseCommand())
+	cmd.AddCommand(newReleaseGroupCommand())
 	return cmd
 }
 
@@ -82,6 +83,43 @@ func newReleaseCommand() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&artistMBID, "artist-mbid", "", "Filter releases by artist MBID (arid)")
+	return cmd
+}
+
+func newReleaseGroupCommand() *cobra.Command {
+	var artistMBID string
+	cmd := &cobra.Command{
+		Use:   "releasegroup [query]",
+		Short: "Search release groups",
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			limit, pageNo, offset, err := paginationFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+
+			textQuery := ""
+			if len(args) > 0 {
+				textQuery = args[0]
+			}
+
+			query, err := releasequery.BuildReleaseGroupQuery(textQuery, artistMBID)
+			if err != nil {
+				return err
+			}
+
+			result, err := runtime.Client.SearchReleaseGroups(runtime.Context(), query, limit, offset)
+			if err != nil {
+				return err
+			}
+			resp, err := output.ReleaseGroupSearch(runtime.OutputMode, query, limit, pageNo, result)
+			if err != nil {
+				return err
+			}
+			return output.WriteJSON(runtime.Stdout, resp)
+		},
+	}
+	cmd.Flags().StringVar(&artistMBID, "artist-mbid", "", "Filter release groups by artist MBID (arid)")
 	return cmd
 }
 
