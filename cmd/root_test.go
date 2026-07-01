@@ -15,10 +15,11 @@ import (
 )
 
 type mockClient struct {
-	mu                 sync.Mutex
-	lastReleaseQuery   string
-	lastReleaseLimit   int
-	lastReleaseOffset  int
+	mu                      sync.Mutex
+	lastReleaseQuery        string
+	lastReleaseGroupQuery   string
+	lastReleaseLimit        int
+	lastReleaseOffset       int
 }
 
 func (m *mockClient) SearchArtists(_ context.Context, _ string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error) {
@@ -44,18 +45,42 @@ func (m *mockClient) SearchReleases(_ context.Context, query string, limit, offs
 	}, nil
 }
 
-func (m *mockClient) releaseQuery() string {
+func (m *mockClient) SearchReleaseGroups(_ context.Context, query string, limit, offset int) (musicbrainzws2.SearchReleaseGroupsResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.lastReleaseQuery
+	m.lastReleaseGroupQuery = query
+	m.lastReleaseLimit = limit
+	m.lastReleaseOffset = offset
+	return musicbrainzws2.SearchReleaseGroupsResult{
+		SearchResult: musicbrainzws2.SearchResult{Count: 1, Offset: offset},
+		ReleaseGroups: []musicbrainzws2.ReleaseGroup{
+			{ID: mbtypes.MBID("abbc4905-c25f-4c67-8e2d-19329ec48b1f"), Title: "Abbey Road", Score: 100, PrimaryType: "Album"},
+		},
+	}, nil
+}
+
+func (m *mockClient) releaseGroupQuery() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReleaseGroupQuery
 }
 
 func (m *mockClient) LookupArtist(_ context.Context, mbid mbtypes.MBID, _ []string) (musicbrainzws2.Artist, error) {
 	return musicbrainzws2.Artist{ID: mbid, Name: "The Beatles"}, nil
 }
 
+func (m *mockClient) releaseQuery() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReleaseQuery
+}
+
 func (m *mockClient) LookupRelease(_ context.Context, _ mbtypes.MBID, _ []string) (musicbrainzws2.Release, error) {
 	return musicbrainzws2.Release{}, nil
+}
+
+func (m *mockClient) LookupReleaseGroup(_ context.Context, mbid mbtypes.MBID, _ []string) (musicbrainzws2.ReleaseGroup, error) {
+	return musicbrainzws2.ReleaseGroup{ID: mbid, Title: "Abbey Road", PrimaryType: "Album"}, nil
 }
 
 func (m *mockClient) Close() error { return nil }
@@ -211,6 +236,70 @@ func TestSearchReleaseRequiresQueryOrArtistMBID(t *testing.T) {
 	t.Cleanup(ResetForTest)
 
 	code, _, stderr := executeWithArgs(t, []string{"search", "release"})
+	if code != apperr.ExitInvalidArgument {
+		t.Fatalf("exit code = %d, want %d", code, apperr.ExitInvalidArgument)
+	}
+	if !strings.Contains(stderr.String(), "query or --artist-mbid is required") {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+}
+
+func TestSearchReleaseGroupByArtistMBIDOnly(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	const mbid = "b10bbbfc-cf9e-42e6-888b-88b6b374d5d4"
+	client := &mockClient{}
+	code, stdout, stderr := executeWithClient(t, client, []string{"search", "releasegroup", "--artist-mbid", mbid})
+	if code != apperr.ExitSuccess {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	want := "arid:" + mbid + " AND primarytype:album"
+	if got := client.releaseGroupQuery(); got != want {
+		t.Fatalf("releasegroup query = %q, want %q", got, want)
+	}
+
+	var resp struct {
+		Type string `json:"type"`
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if resp.Type != "releasegroup_search" || resp.Query != want {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+}
+
+func TestLookupReleaseGroupSuccess(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	const mbid = "abbc4905-c25f-4c67-8e2d-19329ec48b1f"
+	code, stdout, stderr := executeWithArgs(t, []string{"lookup", "releasegroup", mbid})
+	if code != apperr.ExitSuccess {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+
+	var resp struct {
+		Type   string                 `json:"type"`
+		Output string                 `json:"output"`
+		ID     string                 `json:"id"`
+		Result map[string]interface{} `json:"result"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if resp.Type != "releasegroup_lookup" || resp.Output != "simple" || resp.ID != mbid {
+		t.Fatalf("unexpected response: %#v", resp)
+	}
+	if resp.Result["releasegroup"] != "Abbey Road" {
+		t.Fatalf("result = %#v", resp.Result)
+	}
+}
+
+func TestSearchReleaseGroupRequiresQueryOrArtistMBID(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	code, _, stderr := executeWithArgs(t, []string{"search", "releasegroup"})
 	if code != apperr.ExitInvalidArgument {
 		t.Fatalf("exit code = %d, want %d", code, apperr.ExitInvalidArgument)
 	}

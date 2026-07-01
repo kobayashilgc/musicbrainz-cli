@@ -218,6 +218,32 @@ func TestReleaseSearchBeyondPage(t *testing.T) {
 	}
 }
 
+func TestReleaseGroupSearch(t *testing.T) {
+	t.Parallel()
+
+	result := musicbrainzws2.SearchReleaseGroupsResult{
+		SearchResult: musicbrainzws2.SearchResult{Count: 42},
+		ReleaseGroups: []musicbrainzws2.ReleaseGroup{
+			{ID: mbtypes.MBID("abbc4905-c25f-4c67-8e2d-19329ec48b1f"), Title: "Abbey Road", Score: 100, PrimaryType: "Album"},
+			{ID: mbtypes.MBID("00000000-0000-0000-0000-000000000001"), Title: "Low", Score: 49, PrimaryType: "Album"},
+		},
+	}
+
+	resp, err := ReleaseGroupSearch(ModeSimple, "(Abbey Road) AND primarytype:album", 25, 1, result)
+	if err != nil {
+		t.Fatalf("ReleaseGroupSearch() error = %v", err)
+	}
+	if resp.Type != TypeReleaseGroupSearch {
+		t.Fatalf("type = %q, want %q", resp.Type, TypeReleaseGroupSearch)
+	}
+	if resp.Count != 42 || resp.CurrentCount != 1 || !resp.HasData {
+		t.Fatalf("unexpected counts: count=%d current_count=%d has_data=%v", resp.Count, resp.CurrentCount, resp.HasData)
+	}
+	if resp.PrimaryType != RequiredReleasePrimaryType {
+		t.Fatalf("primary_type = %q", resp.PrimaryType)
+	}
+}
+
 func TestWriteJSON(t *testing.T) {
 	t.Parallel()
 

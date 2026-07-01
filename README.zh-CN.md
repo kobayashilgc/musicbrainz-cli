@@ -8,14 +8,14 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-通过 [MusicBrainz Web Service v2](https://musicbrainz.org/doc/MusicBrainz_API) 检索 artist 与 release 元数据的命令行工具。输出为标准 JSON，便于脚本与管道集成。
+通过 [MusicBrainz Web Service v2](https://musicbrainz.org/doc/MusicBrainz_API) 检索 artist、release 与 release group 元数据的命令行工具。输出为标准 JSON，便于脚本与管道集成。
 
 ## 功能特性
 
-- **Search** — 使用 Lucene 语法搜索 artist / release
-- **按 artist MBID 搜 release** — `search release` 支持 `--artist-mbid` 过滤
-- **仅 album 发行版** — `search release` 自动在 API 查询中追加 `primarytype:album`
-- **Lookup** — 按 MusicBrainz ID（MBID）精确查询
+- **Search** — 使用 Lucene 语法搜索 artist / release / release group
+- **按 artist MBID 搜 release / release group** — `search release` 与 `search releasegroup` 支持 `--artist-mbid` 过滤
+- **仅 album** — `search release` 与 `search releasegroup` 自动在 API 查询中追加 `primarytype:album`
+- **Lookup** — 按 MusicBrainz ID（MBID）精确查询 artist / release / release group
 - **分页** — 通过 `--limit` / `--pageno` 控制（仅 search）
 - **分数过滤** — 自动丢弃 score &lt; 50 的搜索结果
 - **JSON 输出** — 成功结果输出至 stdout，错误输出至 stderr
@@ -65,11 +65,13 @@ mbz search artist "Beatles" | jq '.results[].artist'
 ```
 mbz
 ├── search
-│   ├── artist <query>     搜索艺术家
-│   └── release [query]    搜索发行版（query 可选；可配合 --artist-mbid）
+│   ├── artist <query>        搜索艺术家
+│   ├── release [query]       搜索发行版（query 可选；可配合 --artist-mbid）
+│   └── releasegroup [query]  搜索 release group（query 可选；可配合 --artist-mbid）
 └── lookup
-    ├── artist <mbid>      按 MBID 查询艺术家
-    └── release <mbid>     按 MBID 查询发行版
+    ├── artist <mbid>         按 MBID 查询艺术家
+    ├── release <mbid>        按 MBID 查询发行版
+    └── releasegroup <mbid>   按 MBID 查询 release group
 ```
 
 ### 全局参数
@@ -89,13 +91,13 @@ mbz
 |------|------|
 | `--inc` | 可多次指定，请求附加关联数据（如 `releases`、`artist-credits`、`media`） |
 
-### search release 专属参数
+### search release / releasegroup 专属参数
 
 | 参数 | 说明 |
 |------|------|
 | `--artist-mbid` | 按 artist MBID 过滤（对应 Lucene `arid`）；可与可选的位置参数 query 组合 |
 
-`query` 与 `--artist-mbid` 至少提供一个。
+`search release` 与 `search releasegroup` 的 `query` 与 `--artist-mbid` 至少提供一个。
 
 ## 使用示例
 
@@ -121,11 +123,20 @@ mbz search release --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 mbz search release "Abbey Road" --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 ```
 
+### 搜索 release group
+
+```bash
+mbz search releasegroup "Abbey Road"
+mbz search releasegroup --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
+mbz search releasegroup "Abbey Road" --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
+```
+
 ### 按 MBID 查询
 
 ```bash
 mbz lookup artist b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --inc media
+mbz lookup releasegroup abbc4905-c25f-4c67-8e2d-19329ec48b1f
 ```
 
 ## 输出格式
@@ -139,7 +150,7 @@ mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --i
 
 **simple 模式字段**（仅在 API 返回中存在时输出）：
 
-`mbid`、`score`、`artist`、`release`、`type`、`country`、`date`、`format`、`barcode`、`alias`、`primary_alias`、`tag`
+`mbid`、`score`、`artist`、`release`、`releasegroup`、`type`、`country`、`date`、`format`、`barcode`、`alias`、`primary_alias`、`tag`
 
 ### Search 成功响应（simple）
 
@@ -194,6 +205,33 @@ Release search 会额外包含 `"primary_type": "album"`（通过 Lucene `primar
 }
 ```
 
+Release group search 使用相同 album 过滤；simple 结果以 `releasegroup` 表示标题：
+
+```json
+{
+  "type": "releasegroup_search",
+  "output": "simple",
+  "query": "(Abbey Road) AND primarytype:album",
+  "pageno": 1,
+  "limit": 25,
+  "min_score": 50,
+  "primary_type": "album",
+  "count": 42,
+  "current_count": 1,
+  "has_data": true,
+  "created": "2026-07-01T12:00:00Z",
+  "results": [
+    {
+      "mbid": "abbc4905-c25f-4c67-8e2d-19329ec48b1f",
+      "score": 100,
+      "releasegroup": "Abbey Road",
+      "artist": "The Beatles",
+      "type": "Album"
+    }
+  ]
+}
+```
+
 ### Search 成功响应（full）
 
 包含原始 `results` 及顶层 `scores` 映射（MBID → score）。
@@ -237,7 +275,7 @@ Release search 会额外包含 `"primary_type": "album"`（通过 Lucene `primar
 | 简单关键词 | `Beatles` |
 | 按发行版名 + 艺术家 | `release:"Abbey Road" AND artist:"Beatles"` |
 | 按条码 | `barcode:602527306377` |
-| 按 artist MBID 搜 release | `--artist-mbid b10bbbfc-...` 或 Lucene `arid:b10bbbfc-...` |
+| 按 artist MBID 搜 release / release group | `--artist-mbid b10bbbfc-...` 或 Lucene `arid:b10bbbfc-...` |
 
 ## 注意事项
 
@@ -247,7 +285,8 @@ Release search 会额外包含 `"primary_type": "album"`（通过 Lucene `primar
 4. **计数字段** — `count` 为 API 返回的总命中数（跨分页；release search 含 `primarytype:album` 条件，不含 CLI score 过滤）。`current_count` 为本页经 score 过滤后实际输出的条数。`has_data` 在 `(pageno - 1) * limit < count` 时为 `true`。
 5. **分数过滤** — search 自动丢弃 score &lt; 50 的结果；仅影响 `current_count` 与 `results`，不影响 `count` / `has_data`。
 6. **Release search album 过滤** — `search release` 始终在发往 API 的 Lucene 查询中追加 `primarytype:album`，仅返回 album 类型发行版；JSON 中的 `primary_type` 字段标明该过滤条件。
-7. **lookup** — lookup 命令不使用分页参数。
+7. **Release group search** — `search releasegroup` 使用相同 album 与 score 过滤；Lucene 文本默认搜索 `releasegroup` 字段；simple 输出以 `releasegroup`（非 `release`）表示标题。
+8. **lookup** — lookup 命令不使用分页参数。
 
 ## 开发
 

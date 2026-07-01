@@ -8,14 +8,14 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-A command-line tool for querying [MusicBrainz Web Service v2](https://musicbrainz.org/doc/MusicBrainz_API). Search and look up artist and release metadata with JSON output designed for scripting and pipelines.
+A command-line tool for querying [MusicBrainz Web Service v2](https://musicbrainz.org/doc/MusicBrainz_API). Search and look up artist, release, and release group metadata with JSON output designed for scripting and pipelines.
 
 ## Features
 
-- **Search** artists and releases using Lucene query syntax
-- **Release search by artist MBID** — filter with `--artist-mbid` on `search release`
-- **Album-only release search** — `search release` appends `primarytype:album` to the API query automatically
-- **Lookup** artists and releases by MusicBrainz ID (MBID)
+- **Search** artists, releases, and release groups using Lucene query syntax
+- **Release / release group search by artist MBID** — filter with `--artist-mbid` on `search release` and `search releasegroup`
+- **Album-only release & release group search** — both append `primarytype:album` to the API query automatically
+- **Lookup** artists, releases, and release groups by MusicBrainz ID (MBID)
 - **Pagination** via `--limit` and `--pageno` (search only)
 - **Score filtering** — search results with score &lt; 50 are dropped automatically
 - **JSON output** — success on stdout, errors on stderr
@@ -65,11 +65,13 @@ mbz search artist "Beatles" | jq '.results[].artist'
 ```
 mbz
 ├── search
-│   ├── artist <query>     Search artists
-│   └── release [query]    Search releases (optional query; use --artist-mbid)
+│   ├── artist <query>        Search artists
+│   ├── release [query]       Search releases (optional query; use --artist-mbid)
+│   └── releasegroup [query]  Search release groups (optional query; use --artist-mbid)
 └── lookup
-    ├── artist <mbid>       Look up an artist
-    └── release <mbid>      Look up a release
+    ├── artist <mbid>         Look up an artist
+    ├── release <mbid>        Look up a release
+    └── releasegroup <mbid>   Look up a release group
 ```
 
 ### Global flags
@@ -89,13 +91,13 @@ mbz
 |------|-------------|
 | `--inc` | Include related data (repeatable), e.g. `releases`, `artist-credits`, `media` |
 
-### Search release flags
+### Search release / releasegroup flags
 
 | Flag | Description |
 |------|-------------|
 | `--artist-mbid` | Filter by artist MBID (`arid`); optional `query` arg can be combined with `AND` |
 
-Provide at least one of `[query]` or `--artist-mbid`.
+Provide at least one of `[query]` or `--artist-mbid` for `search release` and `search releasegroup`.
 
 ## Examples
 
@@ -121,11 +123,20 @@ mbz search release --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 mbz search release "Abbey Road" --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 ```
 
+### Search release groups
+
+```bash
+mbz search releasegroup "Abbey Road"
+mbz search releasegroup --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
+mbz search releasegroup "Abbey Road" --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
+```
+
 ### Lookup
 
 ```bash
 mbz lookup artist b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --inc media
+mbz lookup releasegroup abbc4905-c25f-4c67-8e2d-19329ec48b1f
 ```
 
 ## Output format
@@ -139,7 +150,7 @@ mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --i
 
 **Simple mode fields** (included only when present in the API response):
 
-`mbid`, `score`, `artist`, `release`, `type`, `country`, `date`, `format`, `barcode`, `alias`, `primary_alias`, `tag`
+`mbid`, `score`, `artist`, `release`, `releasegroup`, `type`, `country`, `date`, `format`, `barcode`, `alias`, `primary_alias`, `tag`
 
 ### Search response (simple)
 
@@ -189,6 +200,33 @@ Release search adds `"primary_type": "album"` (API-side filter via Lucene `prima
       "mbid": "464a321e-97a0-4654-8a7a-d1d88e8496e0",
       "score": 100,
       "release": "Abbey Road"
+    }
+  ]
+}
+```
+
+Release group search uses the same album filter; simple results use `releasegroup` for the title:
+
+```json
+{
+  "type": "releasegroup_search",
+  "output": "simple",
+  "query": "(Abbey Road) AND primarytype:album",
+  "pageno": 1,
+  "limit": 25,
+  "min_score": 50,
+  "primary_type": "album",
+  "count": 42,
+  "current_count": 1,
+  "has_data": true,
+  "created": "2026-07-01T12:00:00Z",
+  "results": [
+    {
+      "mbid": "abbc4905-c25f-4c67-8e2d-19329ec48b1f",
+      "score": 100,
+      "releasegroup": "Abbey Road",
+      "artist": "The Beatles",
+      "type": "Album"
     }
   ]
 }
@@ -247,7 +285,8 @@ Search commands use [Apache Lucene syntax](https://lucene.apache.org/core/queryp
 4. **Count fields** — `count` is the API total hit count (across all pages; includes release `primarytype:album` filter, excludes CLI score filter). `current_count` is the number of items in `results` on this page after score filtering. `has_data` is `true` when `(pageno - 1) * limit < count`.
 5. **Score filter** — Search drops results with score &lt; 50. This affects `current_count` and `results` only, not `count` or `has_data`.
 6. **Release search album filter** — `search release` always adds `primarytype:album` to the Lucene query sent to the API. Only album releases are returned; `primary_type` in the JSON envelope documents this filter.
-7. **Lookup** — Pagination flags are ignored for lookup commands.
+7. **Release group search** — `search releasegroup` uses the same album and score filters; Lucene text queries default to the `releasegroup` field. Simple output uses `releasegroup` (not `release`) for the title.
+8. **Lookup** — Pagination flags are ignored for lookup commands.
 
 ## Development
 

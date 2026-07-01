@@ -82,3 +82,20 @@ func TestBuildReleaseQueryTrimsWhitespace(t *testing.T) {
 		t.Fatalf("query = %q, want %q", query, want)
 	}
 }
+
+func TestBuildReleaseGroupQueryMatchesRelease(t *testing.T) {
+	t.Parallel()
+
+	const mbid = "b10bbbfc-cf9e-42e6-888b-88b6b374d5d4"
+	releaseQuery, err := BuildReleaseQuery("Abbey Road", mbid)
+	if err != nil {
+		t.Fatalf("BuildReleaseQuery() error = %v", err)
+	}
+	groupQuery, err := BuildReleaseGroupQuery("Abbey Road", mbid)
+	if err != nil {
+		t.Fatalf("BuildReleaseGroupQuery() error = %v", err)
+	}
+	if releaseQuery != groupQuery {
+		t.Fatalf("queries differ: release=%q releasegroup=%q", releaseQuery, groupQuery)
+	}
+}

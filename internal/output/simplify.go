@@ -11,6 +11,7 @@ type SimplifiedItem struct {
 	Score        int      `json:"score,omitempty"`
 	Artist       string   `json:"artist,omitempty"`
 	Release      string   `json:"release,omitempty"`
+	ReleaseGroup string   `json:"releasegroup,omitempty"`
 	Type         string   `json:"type,omitempty"`
 	Country      string   `json:"country,omitempty"`
 	Date         string   `json:"date,omitempty"`
@@ -76,6 +77,33 @@ func SimplifyReleases(releases []musicbrainzws2.Release) []SimplifiedItem {
 	items := make([]SimplifiedItem, len(releases))
 	for i, release := range releases {
 		items[i] = SimplifyRelease(release)
+	}
+	return items
+}
+
+// SimplifyReleaseGroup maps a release group entity to the compact result schema.
+func SimplifyReleaseGroup(releaseGroup musicbrainzws2.ReleaseGroup) SimplifiedItem {
+	item := SimplifiedItem{
+		MBID:         string(releaseGroup.ID),
+		Score:        releaseGroup.Score,
+		ReleaseGroup: releaseGroup.Title,
+		Artist:       artistCreditString(releaseGroup.ArtistCredit),
+		Type:         releaseGroup.PrimaryType,
+		Alias:        aliasNames(releaseGroup.Aliases),
+		PrimaryAlias: primaryAlias(releaseGroup.Aliases),
+		Tag:          tagNames(releaseGroup.Tags),
+	}
+	if date := releaseGroup.FirstReleaseDate.String(); date != "" {
+		item.Date = date
+	}
+	return item
+}
+
+// SimplifyReleaseGroups converts a slice of release groups to simplified result items.
+func SimplifyReleaseGroups(releaseGroups []musicbrainzws2.ReleaseGroup) []SimplifiedItem {
+	items := make([]SimplifiedItem, len(releaseGroups))
+	for i, releaseGroup := range releaseGroups {
+		items[i] = SimplifyReleaseGroup(releaseGroup)
 	}
 	return items
 }

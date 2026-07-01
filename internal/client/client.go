@@ -21,8 +21,10 @@ const (
 type Interface interface {
 	SearchArtists(ctx context.Context, query string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error)
 	SearchReleases(ctx context.Context, query string, limit, offset int) (musicbrainzws2.SearchReleasesResult, error)
+	SearchReleaseGroups(ctx context.Context, query string, limit, offset int) (musicbrainzws2.SearchReleaseGroupsResult, error)
 	LookupArtist(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.Artist, error)
 	LookupRelease(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.Release, error)
+	LookupReleaseGroup(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.ReleaseGroup, error)
 	Close() error
 }
 
@@ -80,6 +82,11 @@ func (c *Client) SearchReleases(ctx context.Context, query string, limit, offset
 	return c.inner.SearchReleases(ctx, musicbrainzws2.SearchFilter{Query: query}, paginator(limit, offset))
 }
 
+// SearchReleaseGroups runs a Lucene release-group search with explicit pagination.
+func (c *Client) SearchReleaseGroups(ctx context.Context, query string, limit, offset int) (musicbrainzws2.SearchReleaseGroupsResult, error) {
+	return c.inner.SearchReleaseGroups(ctx, musicbrainzws2.SearchFilter{Query: query}, paginator(limit, offset))
+}
+
 // LookupArtist fetches a single artist by MBID with optional inc= parameters.
 func (c *Client) LookupArtist(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.Artist, error) {
 	return c.inner.LookupArtist(ctx, mbid, musicbrainzws2.IncludesFilter{Includes: includes})
@@ -88,6 +95,11 @@ func (c *Client) LookupArtist(ctx context.Context, mbid mbtypes.MBID, includes [
 // LookupRelease fetches a single release by MBID with optional inc= parameters.
 func (c *Client) LookupRelease(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.Release, error) {
 	return c.inner.LookupRelease(ctx, mbid, musicbrainzws2.IncludesFilter{Includes: includes})
+}
+
+// LookupReleaseGroup fetches a single release group by MBID with optional inc= parameters.
+func (c *Client) LookupReleaseGroup(ctx context.Context, mbid mbtypes.MBID, includes []string) (musicbrainzws2.ReleaseGroup, error) {
+	return c.inner.LookupReleaseGroup(ctx, mbid, musicbrainzws2.IncludesFilter{Includes: includes})
 }
 
 func paginator(limit, offset int) musicbrainzws2.Paginator {
