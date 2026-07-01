@@ -9,6 +9,7 @@ import (
 	"github.com/liuguancheng/musicbrainz-cli/internal/apperr"
 	"github.com/liuguancheng/musicbrainz-cli/internal/output"
 	"github.com/liuguancheng/musicbrainz-cli/internal/pagination"
+	releasequery "github.com/liuguancheng/musicbrainz-cli/internal/search"
 	"github.com/liuguancheng/musicbrainz-cli/internal/runtime"
 )
 
@@ -29,7 +30,7 @@ func newArtistCommand() *cobra.Command {
 		Short: "Search artists",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			limit, offset, err := paginationFromFlags(cmd)
+			limit, pageNo, offset, err := paginationFromFlags(cmd)
 			if err != nil {
 				return err
 			}
@@ -38,7 +39,7 @@ func newArtistCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			resp, err := output.ArtistSearch(runtime.OutputMode, query, limit, offset, result)
+			resp, err := output.ArtistSearch(runtime.OutputMode, query, limit, pageNo, result)
 			if err != nil {
 				return err
 			}
@@ -48,41 +49,54 @@ func newArtistCommand() *cobra.Command {
 }
 
 func newReleaseCommand() *cobra.Command {
-	return &cobra.Command{
-		Use:   "release <query>",
+	var artistMBID string
+	cmd := &cobra.Command{
+		Use:   "release [query]",
 		Short: "Search releases",
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			limit, offset, err := paginationFromFlags(cmd)
+			limit, pageNo, offset, err := paginationFromFlags(cmd)
 			if err != nil {
 				return err
 			}
-			query := args[0]
+
+			textQuery := ""
+			if len(args) > 0 {
+				textQuery = args[0]
+			}
+
+			query, err := releasequery.BuildReleaseQuery(textQuery, artistMBID)
+			if err != nil {
+				return err
+			}
+
 			result, err := runtime.Client.SearchReleases(runtime.Context(), query, limit, offset)
 			if err != nil {
 				return err
 			}
-			resp, err := output.ReleaseSearch(runtime.OutputMode, query, limit, offset, result)
+			resp, err := output.ReleaseSearch(runtime.OutputMode, query, limit, pageNo, result)
 			if err != nil {
 				return err
 			}
 			return output.WriteJSON(runtime.Stdout, resp)
 		},
 	}
+	cmd.Flags().StringVar(&artistMBID, "artist-mbid", "", "Filter releases by artist MBID (arid)")
+	return cmd
 }
 
-// paginationFromFlags reads and validates inherited --limit and --offset flags.
-func paginationFromFlags(cmd *cobra.Command) (int, int, error) {
-	limit, err := cmd.Flags().GetInt("limit")
+// paginationFromFlags reads and validates inherited --limit and --pageno flags.
+func paginationFromFlags(cmd *cobra.Command) (limit, pageNo, offset int, err error) {
+	limit, err = cmd.Flags().GetInt("limit")
 	if err != nil {
-		return 0, 0, fmt.Errorf("read limit flag: %w", err)
+		return 0, 0, 0, fmt.Errorf("read limit flag: %w", err)
 	}
-	offset, err := cmd.Flags().GetInt("offset")
+	pageNo, err = cmd.Flags().GetInt("pageno")
 	if err != nil {
-		return 0, 0, fmt.Errorf("read offset flag: %w", err)
+		return 0, 0, 0, fmt.Errorf("read pageno flag: %w", err)
 	}
-	if err := pagination.Validate(limit, offset); err != nil {
-		return 0, 0, apperr.InvalidArgument(err.Error())
+	if err := pagination.Validate(limit, pageNo); err != nil {
+		return 0, 0, 0, apperr.InvalidArgument(err.Error())
 	}
-	return limit, offset, nil
+	return limit, pageNo, pagination.Offset(limit, pageNo), nil
 }

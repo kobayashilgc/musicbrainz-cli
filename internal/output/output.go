@@ -18,6 +18,9 @@ const (
 // MinSearchScore is the minimum MusicBrainz search score included in results.
 const MinSearchScore = 50
 
+// RequiredReleasePrimaryType is the release group primary type enforced in release search queries.
+const RequiredReleasePrimaryType = "album"
+
 const (
 	CodeInvalidArgument = "INVALID_ARGUMENT"
 	CodeNotFound        = "NOT_FOUND"
@@ -34,16 +37,19 @@ type ErrorResponse struct {
 
 // SearchResponse is the JSON envelope for artist and release search results.
 type SearchResponse struct {
-	Type     string          `json:"type"`
-	Output   string          `json:"output"`
-	Query    string          `json:"query"`
-	Offset   int             `json:"offset"`
-	Limit    int             `json:"limit"`
-	MinScore int             `json:"min_score"`
-	Count    int             `json:"count"`
-	Created  time.Time       `json:"created"`
-	Results  json.RawMessage `json:"results"`
-	Scores   map[string]int  `json:"scores,omitempty"`
+	Type         string          `json:"type"`
+	Output       string          `json:"output"`
+	Query        string          `json:"query"`
+	PageNo       int             `json:"pageno"`
+	Limit        int             `json:"limit"`
+	MinScore     int             `json:"min_score"`
+	PrimaryType  string          `json:"primary_type,omitempty"`
+	Count        int             `json:"count"`
+	CurrentCount int             `json:"current_count"`
+	HasData      bool            `json:"has_data"`
+	Created      time.Time       `json:"created"`
+	Results      json.RawMessage `json:"results"`
+	Scores       map[string]int  `json:"scores,omitempty"`
 }
 
 // LookupResponse is the JSON envelope for artist and release lookup results.
@@ -74,22 +80,25 @@ func WriteError(w io.Writer, message, code string, statusCode int) error {
 }
 
 // ArtistSearch builds a search response after score filtering and mode-specific serialization.
-func ArtistSearch(mode Mode, query string, limit, offset int, result musicbrainzws2.SearchArtistsResult) (SearchResponse, error) {
+func ArtistSearch(mode Mode, query string, limit, pageNo int, result musicbrainzws2.SearchArtistsResult) (SearchResponse, error) {
 	artists := filterArtists(result.Artists)
+	currentCount, hasData := searchPageMeta(result.Count, limit, pageNo, len(artists))
 	created := result.Created
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
 
 	resp := SearchResponse{
-		Type:     TypeArtistSearch,
-		Output:   mode.String(),
-		Query:    query,
-		Offset:   offset,
-		Limit:    limit,
-		MinScore: MinSearchScore,
-		Count:    len(artists),
-		Created:  created,
+		Type:         TypeArtistSearch,
+		Output:       mode.String(),
+		Query:        query,
+		PageNo:       pageNo,
+		Limit:        limit,
+		MinScore:     MinSearchScore,
+		Count:        result.Count,
+		CurrentCount: currentCount,
+		HasData:      hasData,
+		Created:      created,
 	}
 
 	if mode == ModeFull {
@@ -116,22 +125,26 @@ func ArtistSearch(mode Mode, query string, limit, offset int, result musicbrainz
 }
 
 // ReleaseSearch builds a search response after score filtering and mode-specific serialization.
-func ReleaseSearch(mode Mode, query string, limit, offset int, result musicbrainzws2.SearchReleasesResult) (SearchResponse, error) {
+func ReleaseSearch(mode Mode, query string, limit, pageNo int, result musicbrainzws2.SearchReleasesResult) (SearchResponse, error) {
 	releases := filterReleases(result.Releases)
+	currentCount, hasData := searchPageMeta(result.Count, limit, pageNo, len(releases))
 	created := result.Created
 	if created.IsZero() {
 		created = time.Now().UTC()
 	}
 
 	resp := SearchResponse{
-		Type:     TypeReleaseSearch,
-		Output:   mode.String(),
-		Query:    query,
-		Offset:   offset,
-		Limit:    limit,
-		MinScore: MinSearchScore,
-		Count:    len(releases),
-		Created:  created,
+		Type:         TypeReleaseSearch,
+		Output:       mode.String(),
+		Query:        query,
+		PageNo:       pageNo,
+		Limit:        limit,
+		MinScore:     MinSearchScore,
+		PrimaryType:  RequiredReleasePrimaryType,
+		Count:        result.Count,
+		CurrentCount: currentCount,
+		HasData:      hasData,
+		Created:      created,
 	}
 
 	if mode == ModeFull {
@@ -155,6 +168,12 @@ func ReleaseSearch(mode Mode, query string, limit, offset int, result musicbrain
 	}
 	resp.Results = results
 	return resp, nil
+}
+
+// searchPageMeta derives current_count and has_data from API totals and filtered page size.
+func searchPageMeta(apiCount, limit, pageNo, filteredLen int) (currentCount int, hasData bool) {
+	offset := (pageNo - 1) * limit
+	return filteredLen, offset < apiCount
 }
 
 // filterArtists drops search hits below MinSearchScore before serialization.

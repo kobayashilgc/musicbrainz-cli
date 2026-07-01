@@ -13,8 +13,10 @@ A command-line tool for querying [MusicBrainz Web Service v2](https://musicbrain
 ## Features
 
 - **Search** artists and releases using Lucene query syntax
+- **Release search by artist MBID** — filter with `--artist-mbid` on `search release`
+- **Album-only release search** — `search release` appends `primarytype:album` to the API query automatically
 - **Lookup** artists and releases by MusicBrainz ID (MBID)
-- **Pagination** via `--limit` and `--offset` (search only)
+- **Pagination** via `--limit` and `--pageno` (search only)
 - **Score filtering** — search results with score &lt; 50 are dropped automatically
 - **JSON output** — success on stdout, errors on stderr
 - **Output modes** — `simple` (default, key fields only) or `full` (raw API structures)
@@ -64,7 +66,7 @@ mbz search artist "Beatles" | jq '.results[].artist'
 mbz
 ├── search
 │   ├── artist <query>     Search artists
-│   └── release <query>    Search releases
+│   └── release [query]    Search releases (optional query; use --artist-mbid)
 └── lookup
     ├── artist <mbid>       Look up an artist
     └── release <mbid>      Look up a release
@@ -75,7 +77,7 @@ mbz
 | Flag | Short | Default | Description |
 |------|-------|---------|-------------|
 | `--limit` | `-l` | `25` | Page size (1–100); search only |
-| `--offset` | `-o` | `0` | Result offset (≥ 0); search only |
+| `--pageno` | `-p` | `1` | Page number (≥ 1); search only |
 | `--output` | | `simple` | Output mode: `simple` or `full` |
 | `--user-agent` | | auto | HTTP User-Agent override |
 | `--contact` | | repo URL | Contact URL embedded in User-Agent |
@@ -87,14 +89,22 @@ mbz
 |------|-------------|
 | `--inc` | Include related data (repeatable), e.g. `releases`, `artist-credits`, `media` |
 
+### Search release flags
+
+| Flag | Description |
+|------|-------------|
+| `--artist-mbid` | Filter by artist MBID (`arid`); optional `query` arg can be combined with `AND` |
+
+Provide at least one of `[query]` or `--artist-mbid`.
+
 ## Examples
 
 ### Search artists
 
 ```bash
 mbz search artist "Beatles"
-mbz search artist 'artist:"The Beatles"' --limit 10 --offset 0
-mbz search artist 'artist:"The Beatles"' --limit 10 --offset 10   # next page
+mbz search artist 'artist:"The Beatles"' --limit 10 --pageno 1
+mbz search artist 'artist:"The Beatles"' --limit 10 --pageno 2   # next page
 mbz search artist "Beatles" --output full                         # full API JSON
 ```
 
@@ -103,6 +113,12 @@ mbz search artist "Beatles" --output full                         # full API JSO
 ```bash
 mbz search release 'release:"Abbey Road" AND artist:"Beatles"'
 mbz search release "Abbey Road" --limit 5
+
+# All releases for an artist (by artist MBID)
+mbz search release --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
+
+# Text query + artist MBID filter
+mbz search release "Abbey Road" --artist-mbid b10bbbfc-cf9e-42e6-888b-88b6b374d5d4
 ```
 
 ### Lookup
@@ -127,15 +143,19 @@ mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --i
 
 ### Search response (simple)
 
+Artist search example:
+
 ```json
 {
   "type": "artist_search",
   "output": "simple",
   "query": "Beatles",
-  "offset": 0,
+  "pageno": 1,
   "limit": 25,
   "min_score": 50,
-  "count": 1,
+  "count": 42,
+  "current_count": 1,
+  "has_data": true,
   "created": "2026-07-01T12:00:00Z",
   "results": [
     {
@@ -144,6 +164,31 @@ mbz lookup release 464a321e-97a0-4654-8a7a-d1d88e8496e0 --inc artist-credits --i
       "artist": "The Beatles",
       "type": "Group",
       "country": "GB"
+    }
+  ]
+}
+```
+
+Release search adds `"primary_type": "album"` (API-side filter via Lucene `primarytype:album`):
+
+```json
+{
+  "type": "release_search",
+  "output": "simple",
+  "query": "(Abbey Road) AND primarytype:album",
+  "pageno": 1,
+  "limit": 25,
+  "min_score": 50,
+  "primary_type": "album",
+  "count": 42,
+  "current_count": 1,
+  "has_data": true,
+  "created": "2026-07-01T12:00:00Z",
+  "results": [
+    {
+      "mbid": "464a321e-97a0-4654-8a7a-d1d88e8496e0",
+      "score": 100,
+      "release": "Abbey Road"
     }
   ]
 }
@@ -192,14 +237,17 @@ Search commands use [Apache Lucene syntax](https://lucene.apache.org/core/queryp
 | Keyword | `Beatles` |
 | Release + artist | `release:"Abbey Road" AND artist:"Beatles"` |
 | Barcode | `barcode:602527306377` |
+| Releases by artist MBID | `--artist-mbid b10bbbfc-...` or Lucene `arid:b10bbbfc-...` |
 
 ## Important notes
 
 1. **Rate limiting** — MusicBrainz allows at most **one request per second** per client. Do not run concurrent requests.
 2. **User-Agent** — A meaningful User-Agent (app name, version, contact URL) is required by MusicBrainz.
-3. **Pagination** — Default `--limit` is `25`, `--offset` is `0`. Valid `limit` range: 1–100.
-4. **Score filter** — Search drops results with score &lt; 50. The `count` field reflects filtered results.
-5. **Lookup** — Pagination flags are ignored for lookup commands.
+3. **Pagination** — Default `--limit` is `25`, `--pageno` is `1`. Valid `limit` range: 1–100. Use `has_data` (`(pageno - 1) * limit < count`) to detect when pagination is beyond the last page.
+4. **Count fields** — `count` is the API total hit count (across all pages; includes release `primarytype:album` filter, excludes CLI score filter). `current_count` is the number of items in `results` on this page after score filtering. `has_data` is `true` when `(pageno - 1) * limit < count`.
+5. **Score filter** — Search drops results with score &lt; 50. This affects `current_count` and `results` only, not `count` or `has_data`.
+6. **Release search album filter** — `search release` always adds `primarytype:album` to the Lucene query sent to the API. Only album releases are returned; `primary_type` in the JSON envelope documents this filter.
+7. **Lookup** — Pagination flags are ignored for lookup commands.
 
 ## Development
 

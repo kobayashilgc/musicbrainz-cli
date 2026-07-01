@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"go.uploadedlobster.com/mbtypes"
@@ -13,37 +14,63 @@ import (
 	"github.com/liuguancheng/musicbrainz-cli/internal/apperr"
 )
 
-type mockClient struct{}
+type mockClient struct {
+	mu                 sync.Mutex
+	lastReleaseQuery   string
+	lastReleaseLimit   int
+	lastReleaseOffset  int
+}
 
-func (mockClient) SearchArtists(_ context.Context, _ string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error) {
+func (m *mockClient) SearchArtists(_ context.Context, _ string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error) {
 	return musicbrainzws2.SearchArtistsResult{
-		SearchResult: musicbrainzws2.SearchResult{Offset: offset},
+		SearchResult: musicbrainzws2.SearchResult{Count: 1, Offset: offset},
 		Artists: []musicbrainzws2.Artist{
 			{ID: mbtypes.MBID("b10bbbfc-cf9e-42e6-888b-88b6b374d5d4"), Name: "The Beatles", Score: 100},
 		},
 	}, nil
 }
 
-func (mockClient) SearchReleases(_ context.Context, _ string, _, _ int) (musicbrainzws2.SearchReleasesResult, error) {
-	return musicbrainzws2.SearchReleasesResult{}, nil
+func (m *mockClient) SearchReleases(_ context.Context, query string, limit, offset int) (musicbrainzws2.SearchReleasesResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.lastReleaseQuery = query
+	m.lastReleaseLimit = limit
+	m.lastReleaseOffset = offset
+	return musicbrainzws2.SearchReleasesResult{
+		SearchResult: musicbrainzws2.SearchResult{Count: 1, Offset: offset},
+		Releases: []musicbrainzws2.Release{
+			{ID: mbtypes.MBID("464a321e-97a0-4654-8a7a-d1d88e8496e0"), Title: "Abbey Road", Score: 100},
+		},
+	}, nil
 }
 
-func (mockClient) LookupArtist(_ context.Context, mbid mbtypes.MBID, _ []string) (musicbrainzws2.Artist, error) {
+func (m *mockClient) releaseQuery() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastReleaseQuery
+}
+
+func (m *mockClient) LookupArtist(_ context.Context, mbid mbtypes.MBID, _ []string) (musicbrainzws2.Artist, error) {
 	return musicbrainzws2.Artist{ID: mbid, Name: "The Beatles"}, nil
 }
 
-func (mockClient) LookupRelease(_ context.Context, _ mbtypes.MBID, _ []string) (musicbrainzws2.Release, error) {
+func (m *mockClient) LookupRelease(_ context.Context, _ mbtypes.MBID, _ []string) (musicbrainzws2.Release, error) {
 	return musicbrainzws2.Release{}, nil
 }
 
-func (mockClient) Close() error { return nil }
+func (m *mockClient) Close() error { return nil }
 
 func executeWithArgs(t *testing.T, args []string) (int, *bytes.Buffer, *bytes.Buffer) {
+	t.Helper()
+	return executeWithClient(t, &mockClient{}, args)
+}
+
+func executeWithClient(t *testing.T, client *mockClient, args []string) (int, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 
 	var stdout, stderr bytes.Buffer
 	SetIO(&stdout, &stderr)
-	SetClient(mockClient{})
+	SetClient(client)
 
 	cmd := RootCmd()
 	cmd.SetArgs(args)
@@ -63,16 +90,21 @@ func TestSearchArtistSuccess(t *testing.T) {
 	}
 
 	var resp struct {
-		Type   string `json:"type"`
-		Output string `json:"output"`
-		Query  string `json:"query"`
-		Count  int    `json:"count"`
+		Type         string `json:"type"`
+		Output       string `json:"output"`
+		Query        string `json:"query"`
+		Count        int    `json:"count"`
+		CurrentCount int    `json:"current_count"`
+		HasData      bool   `json:"has_data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
 		t.Fatalf("unmarshal stdout error = %v, stdout = %s", err, stdout.String())
 	}
-	if resp.Type != "artist_search" || resp.Output != "simple" || resp.Query != "Beatles" || resp.Count != 1 {
+	if resp.Type != "artist_search" || resp.Output != "simple" || resp.Query != "Beatles" {
 		t.Fatalf("unexpected response: %#v", resp)
+	}
+	if resp.Count != 1 || resp.CurrentCount != 1 || !resp.HasData {
+		t.Fatalf("unexpected counts: %#v", resp)
 	}
 }
 
@@ -119,6 +151,70 @@ func TestSearchArtistInvalidLimit(t *testing.T) {
 		t.Fatalf("exit code = %d, want %d", code, apperr.ExitInvalidArgument)
 	}
 	if !strings.Contains(stderr.String(), "INVALID_ARGUMENT") {
+		t.Fatalf("stderr = %s", stderr.String())
+	}
+}
+
+func TestSearchReleaseByArtistMBIDOnly(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	const mbid = "b10bbbfc-cf9e-42e6-888b-88b6b374d5d4"
+	client := &mockClient{}
+	code, stdout, stderr := executeWithClient(t, client, []string{"search", "release", "--artist-mbid", mbid})
+	if code != apperr.ExitSuccess {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	want := "arid:" + mbid + " AND primarytype:album"
+	if got := client.releaseQuery(); got != want {
+		t.Fatalf("release query = %q, want %q", got, want)
+	}
+
+	var resp struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if resp.Query != want {
+		t.Fatalf("response query = %q", resp.Query)
+	}
+}
+
+func TestSearchReleaseWithArtistMBIDAndQuery(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	const mbid = "b10bbbfc-cf9e-42e6-888b-88b6b374d5d4"
+	client := &mockClient{}
+	code, stdout, stderr := executeWithClient(t, client, []string{
+		"search", "release", "Abbey Road", "--artist-mbid", mbid,
+	})
+	if code != apperr.ExitSuccess {
+		t.Fatalf("exit code = %d, stderr = %s", code, stderr.String())
+	}
+	want := "(Abbey Road) AND arid:" + mbid + " AND primarytype:album"
+	if got := client.releaseQuery(); got != want {
+		t.Fatalf("release query = %q, want %q", got, want)
+	}
+
+	var resp struct {
+		Query string `json:"query"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &resp); err != nil {
+		t.Fatalf("unmarshal error = %v", err)
+	}
+	if resp.Query != want {
+		t.Fatalf("response query = %q", resp.Query)
+	}
+}
+
+func TestSearchReleaseRequiresQueryOrArtistMBID(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	code, _, stderr := executeWithArgs(t, []string{"search", "release"})
+	if code != apperr.ExitInvalidArgument {
+		t.Fatalf("exit code = %d, want %d", code, apperr.ExitInvalidArgument)
+	}
+	if !strings.Contains(stderr.String(), "query or --artist-mbid is required") {
 		t.Fatalf("stderr = %s", stderr.String())
 	}
 }

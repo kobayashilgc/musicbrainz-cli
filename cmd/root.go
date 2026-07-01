@@ -40,7 +40,7 @@ func RootCmd() *cobra.Command {
 	}
 
 	rootCmd.PersistentFlags().IntP("limit", "l", pagination.DefaultLimit, "每页条数 (1-100)")
-	rootCmd.PersistentFlags().IntP("offset", "o", pagination.DefaultOffset, "起始偏移")
+	rootCmd.PersistentFlags().IntP("pageno", "p", pagination.DefaultPageNo, "页码 (从 1 开始)")
 	rootCmd.PersistentFlags().String("output", string(output.ModeSimple), "输出模式 (simple|full)")
 	rootCmd.PersistentFlags().String("user-agent", "", "HTTP User-Agent")
 	rootCmd.PersistentFlags().String("contact", client.DefaultContactURL, "联系方式 URL")
