@@ -1,5 +1,8 @@
 # musicbrainz-cli
 
+[![Go](https://github.com/kobayashilgc/musicbrainz-cli/actions/workflows/go.yml/badge.svg)](https://github.com/kobayashilgc/musicbrainz-cli/actions/workflows/go.yml)
+[![codecov](https://codecov.io/gh/kobayashilgc/musicbrainz-cli/graph/badge.svg)](https://codecov.io/gh/kobayashilgc/musicbrainz-cli)
+
 <p align="center">
   <img src="doc/mbz.png" alt="mbz" height="200" />
   &nbsp;&nbsp;
@@ -290,13 +293,30 @@ Search commands use [Apache Lucene syntax](https://lucene.apache.org/core/queryp
 
 ## Development
 
-Run tests:
+### Tests
 
 ```bash
 go test ./...
 ```
 
-Build:
+### Coverage
+
+Integration tests in `cmd/` invoke `cmd/search` and `cmd/lookup` through Cobra. Use `-coverpkg=./...` to include cross-package execution in the report (recommended for this CLI layout):
+
+```bash
+go test ./... -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+HTML report:
+
+```bash
+go tool cover -html=coverage.out -o coverage.html
+```
+
+Coverage is uploaded to [Codecov](https://codecov.io/gh/kobayashilgc/musicbrainz-cli) on pushes to `main` and on pull requests (see badge above).
+
+### Build
 
 ```bash
 go build -o mbz .
@@ -309,4 +329,4 @@ go build -o mbz .
 
 ## License
 
-MIT
+This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.

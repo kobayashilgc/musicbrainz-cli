@@ -1,5 +1,8 @@
 # musicbrainz-cli
 
+[![Go](https://github.com/kobayashilgc/musicbrainz-cli/actions/workflows/go.yml/badge.svg)](https://github.com/kobayashilgc/musicbrainz-cli/actions/workflows/go.yml)
+[![codecov](https://codecov.io/gh/kobayashilgc/musicbrainz-cli/graph/badge.svg)](https://codecov.io/gh/kobayashilgc/musicbrainz-cli)
+
 <p align="center">
   <img src="doc/mbz.png" alt="mbz" height="200" />
   &nbsp;&nbsp;
@@ -290,13 +293,30 @@ Release group search 使用相同 album 过滤；simple 结果以 `releasegroup`
 
 ## 开发
 
-运行测试：
+### 测试
 
 ```bash
 go test ./...
 ```
 
-构建：
+### 覆盖率
+
+`cmd/` 中的集成测试通过 Cobra 调用 `cmd/search` 与 `cmd/lookup`。建议使用 `-coverpkg=./...` 统计跨包执行路径（适合本 CLI 的包结构）：
+
+```bash
+go test ./... -covermode=atomic -coverpkg=./... -coverprofile=coverage.out
+go tool cover -func=coverage.out
+```
+
+生成 HTML 报告：
+
+```bash
+go tool cover -html=coverage.out -o coverage.html
+```
+
+推送到 `main` 及 Pull Request 时，CI 会将覆盖率上传至 [Codecov](https://codecov.io/gh/kobayashilgc/musicbrainz-cli)（见顶部徽章）。
+
+### 构建
 
 ```bash
 go build -o mbz .
@@ -309,4 +329,4 @@ go build -o mbz .
 
 ## License
 
-MIT
+本项目采用 MIT 许可证，详见 [LICENSE](LICENSE)。
