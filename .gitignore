@@ -5,3 +5,6 @@
 技术设计.md
 
 .DS_Store
+
+coverage*.out
+coverage.html

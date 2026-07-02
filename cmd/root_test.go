@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +13,7 @@ import (
 	"go.uploadedlobster.com/musicbrainzws2"
 
 	"github.com/liuguancheng/musicbrainz-cli/internal/apperr"
+	"github.com/liuguancheng/musicbrainz-cli/internal/runtime"
 )
 
 type mockClient struct {
@@ -20,9 +22,13 @@ type mockClient struct {
 	lastReleaseGroupQuery   string
 	lastReleaseLimit        int
 	lastReleaseOffset       int
+	closed                  bool
 }
 
-func (m *mockClient) SearchArtists(_ context.Context, _ string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error) {
+func (m *mockClient) SearchArtists(ctx context.Context, _ string, limit, offset int) (musicbrainzws2.SearchArtistsResult, error) {
+	if err := m.assertOpen(); err != nil {
+		return musicbrainzws2.SearchArtistsResult{}, err
+	}
 	return musicbrainzws2.SearchArtistsResult{
 		SearchResult: musicbrainzws2.SearchResult{Count: 1, Offset: offset},
 		Artists: []musicbrainzws2.Artist{
@@ -83,7 +89,21 @@ func (m *mockClient) LookupReleaseGroup(_ context.Context, mbid mbtypes.MBID, _ 
 	return musicbrainzws2.ReleaseGroup{ID: mbid, Title: "Abbey Road", PrimaryType: "Album"}, nil
 }
 
-func (m *mockClient) Close() error { return nil }
+func (m *mockClient) Close() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.closed = true
+	return nil
+}
+
+func (m *mockClient) assertOpen() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return errors.New("client used after close")
+	}
+	return nil
+}
 
 func executeWithArgs(t *testing.T, args []string) (int, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
@@ -350,5 +370,41 @@ func TestExecuteUsesRuntimeStderr(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "INVALID_ARGUMENT") {
 		t.Fatalf("stderr = %s", stderr.String())
+	}
+}
+
+func TestClientClearedAfterCommand(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	var stdout bytes.Buffer
+	SetIO(&stdout, &bytes.Buffer{})
+	SetClient(&mockClient{})
+
+	cmd := RootCmd()
+	cmd.SetArgs([]string{"search", "artist", "Beatles"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if runtime.Client != nil {
+		t.Fatal("expected runtime.Client to be nil after command completes")
+	}
+}
+
+func TestExecuteTwiceRecreatesClient(t *testing.T) {
+	t.Cleanup(ResetForTest)
+
+	var stdout bytes.Buffer
+	SetIO(&stdout, &bytes.Buffer{})
+
+	for i := 0; i < 2; i++ {
+		SetClient(&mockClient{})
+		cmd := RootCmd()
+		cmd.SetArgs([]string{"search", "artist", "Beatles"})
+		if err := cmd.Execute(); err != nil {
+			t.Fatalf("run %d: Execute() error = %v", i, err)
+		}
+		if runtime.Client != nil {
+			t.Fatalf("run %d: expected runtime.Client nil after command", i)
+		}
 	}
 }

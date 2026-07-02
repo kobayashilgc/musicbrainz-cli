@@ -26,16 +26,20 @@ func RootCmd() *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			runtime.StartCommandContext(runtime.DefaultCommandTimeout)
 			if err := initOutputMode(cmd); err != nil {
+				runtime.EndCommandContext()
 				return err
 			}
-			return initClient(cmd)
-		},
-		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			if runtime.Client != nil {
-				return runtime.Client.Close()
+			if err := initClient(cmd); err != nil {
+				runtime.EndCommandContext()
+				return err
 			}
 			return nil
+		},
+		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
+			defer runtime.EndCommandContext()
+			return runtime.CloseClient()
 		},
 	}
 
